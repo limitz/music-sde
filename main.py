@@ -17,10 +17,6 @@ import scheduler
 from model import ScoreMatchingSDE, ReverseSDE
 from torch.nn.parallel import DistributedDataParallel
 
-
-
-# This dataset returns a random crop of music in a wav file
-# One random crop per file.
 class MusicDataset(torch.utils.data.Dataset):
     def __init__(self, repeat=10):
         self.files = glob.glob("/mnt/vdd/music/**/*.wav", recursive=True)
@@ -41,7 +37,6 @@ class MusicDataset(torch.utils.data.Dataset):
         #return torch.where(r > 0, r.sqrt(), -(-r).add(1e-10).sqrt())
 
 def main(config, model):
-    rev_model = ReverseSDE(model.module if dist.is_initialized() else model)
 
     dataset_root = "/mnt/vdd/music"
     
@@ -63,9 +58,22 @@ def main(config, model):
     nit = len(dataloader_train) * config["epochs"]
     opt = torch.optim.AdamW(model.parameters())
     sched_lr = scheduler.LR(opt, scheduler.Linear, start=1e-7, value=1e-4, final=1e-7, iterations=nit, warmup=100, name="lr")
-    sched_lr.step(0)
+    
+    fwd_model = model.module if dist.is_initialized() else model
+    rev_model = ReverseSDE(fwd_model)
+    for start_epoch in range(config["epochs"],0,-1):
+        path = os.path.join(config["output_path"], config["checkpoint_path"].format(epoch=start_epoch, **config))
+        if os.path.exists(path):
+            checkpoint = torch.load(path, map_location=config["device"])
+            sd_model, sd_opt = checkpoint["model"], checkpoint["opt"]
+            if sd_model:  
+                rev_model.load_state_dict(sd_model)
+            if sd_opt: 
+                opt.load_state_dict(sd_opt)
+            break
+    sched_lr.step(start_epoch)
 
-    for e in range(config["epochs"]):
+    for e in range(start_epoch, config["epochs"]):
         for training, dl in [(True, dataloader_train)]:
             torch.set_grad_enabled(training)
             model.train(training)
@@ -92,13 +100,20 @@ def main(config, model):
                 if len(window) > 1000: window.pop(0)
                 
                 if config["localrank"] == 0:
-                    print(f"E{e:03d} {i:06d}/{len(dl)} loss: {sum(window)/len(window):0.06f}", end="        \r")
+                    print(f"E{e+1:03d} {i:06d}/{len(dl)} loss: {sum(window)/len(window):0.06f}", end="        \r")
 
             if config["localrank"] == 0:
                 with torch.no_grad():
                     generated = rev_model.sde_sample_final()
-                    torchaudio.save(os.path.join(config["output_path"],f"output.{e:03d}.wav"), generated[0].cpu(), 44100)
-                    torch.save(rev_model, os.path.join(config["output_path"], f"model.{e:03d}.pth"))
+                    torchaudio.save(f"output.{e+1:03d}.wav", generated[0].cpu()/4, 44100, encoding="PCM_F")
+                    
+                    path = os.path.join(config["output_path"], config["checkpoint_path"].format(epoch=e+1, **config))
+                    checkpoint = dict(
+                            model=rev_model.state_dict(),
+                            opt=opt.state_dict(),
+                            loss=sum(window)/len(window),
+                            epoch=e+1)
+                    torch.save(checkpoint, path)
             
                      
 

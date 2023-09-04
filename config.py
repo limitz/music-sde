@@ -25,6 +25,7 @@ class Config(dict):
             dict(
                 input_path = "/mnt/vdd/music",
                 output_path = "/mnt/vdd/working",
+                checkpoint_path = "cp.{epoch:03d}.pth",
                 epochs = 1000, 
                 cpu_count = mp.cpu_count(),
                 gpu_count = torch.cuda.device_count() if torch.cuda.is_available() else 0,
