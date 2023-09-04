@@ -17,6 +17,10 @@ import scheduler
 from model import ScoreMatchingSDE, ReverseSDE
 from torch.nn.parallel import DistributedDataParallel
 
+
+
+# This dataset returns a random crop of music in a wav file
+# One random crop per file.
 class MusicDataset(torch.utils.data.Dataset):
     def __init__(self, repeat=10):
         self.files = glob.glob("/mnt/vdd/music/**/*.wav", recursive=True)

@@ -7,6 +7,11 @@ import numpy as np
 import inline
 import torchsde    
 
+
+
+# Changed the code so that it multiplies the input time with a factor of 1000
+# because this looks like the positional encoding from a transformer, which has 
+# been tweaked to expect word indices as time, not a time in the interval (0,1)
 class PositionalEncoding(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -18,6 +23,9 @@ class PositionalEncoding(nn.Module):
         y = torch.cat((y.sin(), y.cos()), -1)
         return y
 
+# Changed this to work on 1 dimensional data and removed
+# the rearrange dependency, as using view / permute is just
+# as simple
 class LinearTimeSelfAttention1d(nn.Module):
     def __init__(self, dim, heads=4, head_dim=32, groups=32):
         super().__init__()
@@ -38,6 +46,9 @@ class LinearTimeSelfAttention1d(nn.Module):
         out = out.reshape(b,self.hidden_dim,w)
         return self.to_out(out)
 
+
+# Changed this to work on 1 dimensional data, removed the dropout
+# as we're not using it (yet)
 class ResnetBlock1d(nn.Module):
     def __init__(self, in_channels, out_channels, time_dim, groups=8):
         super().__init__()
@@ -68,6 +79,9 @@ class ResnetBlock1d(nn.Module):
         y = self.block2(y)
         return y + self.skip_conv(x)
 
+
+# Removed the dependency on kornia for a 2d filter that can just
+# as easily be expressed as a conv2d or in this case a conv1d
 class Blur1d(nn.Module):
     def __init__(self):
         super().__init__()
@@ -91,6 +105,9 @@ class Upsample1d(nn.Sequential):
             Blur1d()
         )
 
+# Refactored this because I found the code to be a bit convoluted. It doesn't have the same
+# layers as the original as I made it symetric so it is easier to track the flow of data, 
+# but it seems to work for now.
 class Unet1d(nn.Module):
     def __init__(self, in_channels, scales=(1,2,4,8), hidden_channels=64, groups=32, heads=4, head_dim=32, scale_factor=4):
         super().__init__()
@@ -168,8 +185,11 @@ class Unet1d(nn.Module):
 def fill_tail_dims(y: torch.Tensor, y_like: torch.Tensor):
     return y[(...,) + (None,) * (y_like.dim() - y.dim())]
 
+# Changed to initialize the denoiser implicitly, 
+# and to work on 1 dimensional data.
+# Changed some variables into explicit values
 class ScoreMatchingSDE(nn.Module):
-    def __init__(self, input_size=(1, 256*256)):
+    def __init__(self, input_size=(1, 512*512)):
         super().__init__()
         self.input_size = input_size
         self.denoiser = Unet1d(input_size[0], scales=(1,2,4,8,16))  
@@ -242,6 +262,7 @@ class ScoreMatchingSDE(nn.Module):
         loss = (lambda_t * loss.flatten(start_dim=1).sum(dim=1))
         return loss
 
+# Only changed the default batch size I believe
 class ReverseSDE(nn.Module):
     noise_type = "diagonal"
     sde_type = "stratonovich"
